@@ -2,11 +2,18 @@
 import dns from "node:dns";
 import { MongoClient } from "mongodb";
 
-// Use Google DNS to resolve MongoDB SRV records
 dns.setServers(["8.8.8.8", "8.8.4.4"]);
 
 let client;
 let database;
+
+export const getMongoClient = () => {
+  if (!client) {
+    throw new Error("MongoDB client is not initialized");
+  }
+
+  return client;
+};
 
 const connectDB = async () => {
   try {
@@ -17,7 +24,7 @@ const connectDB = async () => {
     const uri = process.env.MONGODB_URI;
 
     if (!uri) {
-      throw new Error("MONGODB_URI is missing from environment variables");
+      throw new Error("MONGODB_URI is missing");
     }
 
     client = new MongoClient(uri);

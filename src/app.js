@@ -2,19 +2,43 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
+import { toNodeHandler } from "better-auth/node";
+import createAuth from "./auth/auth.js";
 
 dotenv.config();
 
 const app = express();
 
-// Middleware
+// CORS Configuration
 app.use(
   cors({
-    origin: "http://localhost:3000",
+    origin: process.env.CLIENT_URL || "http://localhost:3000",
     credentials: true,
   })
 );
 
+// Better Auth Configuration
+let auth;
+
+app.use(async (req, res, next) => {
+  try {
+    if (!auth) {
+      auth = createAuth();
+    }
+
+    req.auth = auth;
+    next();
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Better Auth Routes (must be before express.json)
+app.all("/api/auth/{*any}", (req, res, next) => {
+  toNodeHandler(req.auth)(req, res).catch(next);
+});
+
+// JSON Middleware
 app.use(express.json());
 
 // Home Route
