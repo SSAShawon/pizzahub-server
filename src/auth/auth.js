@@ -39,6 +39,24 @@ const createAuth = () => {
           defaultValue: false,
           input: false,
         },
+
+        restaurantName: {
+          type: "string",
+          required: false,
+          input: false,
+        },
+
+        restaurantAddress: {
+          type: "string",
+          required: false,
+          input: false,
+        },
+
+        contactNumber: {
+          type: "string",
+          required: false,
+          input: false,
+        },
       },
     },
 

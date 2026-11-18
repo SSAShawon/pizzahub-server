@@ -4,6 +4,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import { toNodeHandler } from "better-auth/node";
 import createAuth from "./auth/auth.js";
+import vendorRoutes from "./routes/vendor.routes.js";
 
 dotenv.config();
 
@@ -40,6 +41,9 @@ app.all("/api/auth/{*any}", (req, res, next) => {
 
 // JSON Middleware
 app.use(express.json());
+
+// Vendor Routes
+app.use("/api/vendors", vendorRoutes);
 
 // Home Route
 app.get("/", (req, res) => {
