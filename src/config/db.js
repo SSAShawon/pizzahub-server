@@ -2,10 +2,14 @@
 import dns from "node:dns";
 import { MongoClient } from "mongodb";
 
-dns.setServers(["8.8.8.8", "8.8.4.4"]);
+// Google DNS is only used for local development.
+if (process.env.NODE_ENV !== "production") {
+  dns.setServers(["8.8.8.8", "8.8.4.4"]);
+}
 
 let client;
 let database;
+let connectionPromise;
 
 export const getMongoClient = () => {
   if (!client) {
@@ -16,28 +20,47 @@ export const getMongoClient = () => {
 };
 
 const connectDB = async () => {
-  try {
-    if (database) {
-      return database;
-    }
+  if (database) {
+    return database;
+  }
 
+  if (connectionPromise) {
+    return connectionPromise;
+  }
+
+  connectionPromise = (async () => {
     const uri = process.env.MONGODB_URI;
 
     if (!uri) {
       throw new Error("MONGODB_URI is missing");
     }
 
-    client = new MongoClient(uri);
+    const mongoClient = new MongoClient(uri);
 
-    await client.connect();
+    await mongoClient.connect();
 
-    database = client.db(process.env.DB_NAME || "pizzahub");
+    client = mongoClient;
+    database = mongoClient.db(
+      process.env.DB_NAME || "pizzahub"
+    );
 
     console.log("✅ MongoDB Connected Successfully!");
 
     return database;
+  })();
+
+  try {
+    return await connectionPromise;
   } catch (error) {
-    console.error("❌ MongoDB Connection Failed:", error.message);
+    connectionPromise = null;
+    client = null;
+    database = null;
+
+    console.error(
+      "❌ MongoDB Connection Failed:",
+      error.message
+    );
+
     throw error;
   }
 };
