@@ -1,3 +1,4 @@
+
 import { betterAuth } from "better-auth";
 import { mongodbAdapter } from "@better-auth/mongo-adapter";
 import { getMongoClient } from "../config/db.js";
@@ -13,7 +14,9 @@ const createAuth = () => {
 
     secret: process.env.BETTER_AUTH_SECRET,
 
-    trustedOrigins: [process.env.CLIENT_URL || "http://localhost:3000"],
+    trustedOrigins: [
+      process.env.CLIENT_URL || "http://localhost:3000",
+    ],
 
     database: mongodbAdapter(db, {
       client,
@@ -61,7 +64,8 @@ const createAuth = () => {
     },
 
     socialProviders:
-      process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
+      process.env.GOOGLE_CLIENT_ID &&
+      process.env.GOOGLE_CLIENT_SECRET
         ? {
             google: {
               clientId: process.env.GOOGLE_CLIENT_ID,
