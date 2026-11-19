@@ -60,6 +60,17 @@ const createAuth = () => {
           required: false,
           input: false,
         },
+
+        // Customer delivery information
+        deliveryAddress: {
+          type: "string",
+          required: false,
+        },
+
+        phoneNumber: {
+          type: "string",
+          required: false,
+        },
       },
     },
 

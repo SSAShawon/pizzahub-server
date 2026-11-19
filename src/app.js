@@ -4,8 +4,12 @@ import cors from "cors";
 import dotenv from "dotenv";
 import { toNodeHandler } from "better-auth/node";
 import createAuth from "./auth/auth.js";
+
 import vendorRoutes from "./routes/vendor.routes.js";
 import menuRoutes from "./routes/menu.routes.js";
+import userRoutes from "./routes/user.routes.js";
+import orderRoutes from "./routes/order.routes.js";
+
 import adminRoutes from "./routes/admin.routes.js";
 import adminUsersRoutes from "./routes/admin.users.routes.js";
 import adminVendorsRoutes from "./routes/admin.vendors.routes.js";
@@ -53,11 +57,18 @@ app.use("/api/vendors", vendorRoutes);
 // Menu Routes
 app.use("/api/menu", menuRoutes);
 
+// User Profile Routes
+app.use("/api/users", userRoutes);
+
+// Order Routes
+app.use("/api/orders", orderRoutes);
+
 // Admin Routes
 app.use("/api/admin", adminRoutes);
 app.use("/api/admin/users", adminUsersRoutes);
 app.use("/api/admin/vendors", adminVendorsRoutes);
 app.use("/api/admin/transactions", adminTransactionsRoutes);
+
 // Home Route
 app.get("/", (req, res) => {
   res.send("Welcome to PizzaHub API!");
