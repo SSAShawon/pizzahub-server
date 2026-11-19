@@ -55,10 +55,150 @@ const getActiveMenuCount = async (vendorId) => {
   });
 };
 
-// All routes require an authenticated vendor
-router.use(requireVendor);
+// PUBLIC: Get all approved and available pizzas
+// Anyone can access this route without logging in.
+router.get("/public", async (req, res) => {
+  try {
+    const menuItems = await getMenuCollection()
+      .find({
+        status: "approved",
+        isAvailable: true,
+      })
+      .sort({ createdAt: -1 })
+      .toArray();
+
+    const vendorEmails = [
+      ...new Set(menuItems.map((item) => item.vendorEmail).filter(Boolean)),
+    ];
+
+    const vendors = await getDatabase()
+      .collection("user")
+      .find(
+        {
+          email: { $in: vendorEmails },
+          role: "vendor",
+          isBlocked: { $ne: true },
+        },
+        {
+          projection: {
+            email: 1,
+            name: 1,
+            restaurantName: 1,
+            restaurantAddress: 1,
+          },
+        },
+      )
+      .toArray();
+
+    const vendorMap = new Map(
+      vendors.map((vendor) => [vendor.email, vendor]),
+    );
+
+    const publicMenuItems = menuItems
+      .filter((item) => vendorMap.has(item.vendorEmail))
+      .map((item) => {
+        const vendor = vendorMap.get(item.vendorEmail);
+
+        return {
+          ...item,
+          vendor: {
+            name: vendor.name || "",
+            restaurantName: vendor.restaurantName || "",
+            restaurantAddress: vendor.restaurantAddress || "",
+          },
+        };
+      });
+
+    return res.status(200).json({
+      success: true,
+      total: publicMenuItems.length,
+      menuItems: publicMenuItems,
+    });
+  } catch (error) {
+    console.error("Get Public Menu Error:", error.message);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to load public menu.",
+    });
+  }
+});
+
+// PUBLIC: Get one approved and available pizza's details
+router.get("/public/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid menu item ID.",
+      });
+    }
+
+    const menuItem = await getMenuCollection().findOne({
+      _id: new ObjectId(id),
+      status: "approved",
+      isAvailable: true,
+    });
+
+    if (!menuItem) {
+      return res.status(404).json({
+        success: false,
+        message: "Pizza not found or currently unavailable.",
+      });
+    }
+
+    const vendor = await getDatabase()
+      .collection("user")
+      .findOne(
+        {
+          email: menuItem.vendorEmail,
+          role: "vendor",
+          isBlocked: { $ne: true },
+        },
+        {
+          projection: {
+            name: 1,
+            restaurantName: 1,
+            restaurantAddress: 1,
+          },
+        },
+      );
+
+    if (!vendor) {
+      return res.status(404).json({
+        success: false,
+        message: "Pizza not found or currently unavailable.",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      menuItem: {
+        ...menuItem,
+        vendor: {
+          name: vendor.name || "",
+          restaurantName: vendor.restaurantName || "",
+          restaurantAddress: vendor.restaurantAddress || "",
+        },
+      },
+    });
+  } catch (error) {
+    console.error("Get Public Menu Details Error:", error.message);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to load pizza details.",
+    });
+  }
+});
+
+// All routes below require an authenticated vendor.
 
 // GET: Get the logged-in vendor's menu items
+router.use(requireVendor);
+
 router.get("/", async (req, res) => {
   try {
     const [menuItems, subscription] = await Promise.all([
@@ -147,7 +287,6 @@ router.post("/", async (req, res) => {
     const now = new Date();
 
     // New items always start as pending.
-    // Pending items do not count toward the active item limit.
     const newItem = {
       vendorId: req.user.id,
       vendorEmail: req.user.email,
