@@ -5,7 +5,9 @@
   "main": "index.js",
   "scripts": {
     "start": "node src/server.js",
-    "dev": "node --watch src/server.js"
+    "dev": "node --watch src/server.js",
+    "test": "node --test src/utils/password.test.js",
+    "test:auth": "node tests/auth.integration.mjs"
   },
   "keywords": [],
   "author": "",

@@ -47,6 +47,7 @@ router.get("/menu", async (req, res) => {
   }
 });
 
+
 // PATCH: Approve or reject a menu item
 router.patch("/menu/:id/review", async (req, res) => {
   try {
@@ -81,7 +82,10 @@ router.patch("/menu/:id/review", async (req, res) => {
       });
     }
 
-    // Check vendor subscription before approving an available item.
+    // A Free vendor's item can be approved,
+    // but it must remain inactive if the limit is reached.
+    let shouldRemainInactive = false;
+
     if (status === "approved" && menuItem.isAvailable === true) {
       if (!menuItem.vendorId) {
         return res.status(400).json({
@@ -138,14 +142,7 @@ router.patch("/menu/:id/review", async (req, res) => {
           menuItem.isAvailable === true;
 
         if (!alreadyActive && activeCount >= 3) {
-          return res.status(403).json({
-            success: false,
-            code: "FREE_PLAN_LIMIT_REACHED",
-            message:
-              "This vendor has reached the Free Plan limit of 3 active menu items. The vendor must upgrade to Premium or deactivate another item before this item can be approved.",
-            activeItems: activeCount,
-            limit: 3,
-          });
+          shouldRemainInactive = true;
         }
       }
     }
@@ -155,6 +152,7 @@ router.patch("/menu/:id/review", async (req, res) => {
       {
         $set: {
           status,
+          ...(shouldRemainInactive ? { isAvailable: false } : {}),
           updatedAt: new Date(),
         },
       },
@@ -166,10 +164,15 @@ router.patch("/menu/:id/review", async (req, res) => {
 
     return res.status(200).json({
       success: true,
+      code: shouldRemainInactive
+        ? "APPROVED_BUT_INACTIVE"
+        : "MENU_ITEM_REVIEWED",
       message:
-        status === "approved"
-          ? "Menu item approved successfully."
-          : "Menu item rejected successfully.",
+        status === "rejected"
+          ? "Menu item rejected successfully."
+          : shouldRemainInactive
+            ? "Menu item approved successfully, but it remains inactive because the vendor has reached the Free Plan limit of 3 active items."
+            : "Menu item approved successfully.",
       menuItem: updatedItem,
     });
   } catch (error) {
@@ -181,6 +184,7 @@ router.patch("/menu/:id/review", async (req, res) => {
     });
   }
 });
+
 
 // PATCH: Activate or deactivate an approved menu item
 router.patch("/menu/:id/availability", async (req, res) => {

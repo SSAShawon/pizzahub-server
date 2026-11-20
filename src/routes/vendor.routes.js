@@ -1,6 +1,7 @@
 
 import express from "express";
 import { getMongoClient } from "../config/db.js";
+import { getPasswordError } from "../utils/password.js";
 import requireVendor from "../middleware/vendor.middleware.js";
 
 const router = express.Router();
@@ -22,6 +23,7 @@ router.post("/register", async (req, res) => {
       restaurantName,
       email,
       password,
+      image,
       restaurantAddress,
       contactNumber,
     } = req.body || {};
@@ -40,10 +42,12 @@ router.post("/register", async (req, res) => {
       });
     }
 
-    if (password.length < 8 || password.length > 128) {
+    const passwordError = getPasswordError(password);
+
+    if (passwordError) {
       return res.status(400).json({
         success: false,
-        message: "Password must contain 8 to 128 characters.",
+        message: passwordError,
       });
     }
 
@@ -59,6 +63,15 @@ router.post("/register", async (req, res) => {
       });
     }
 
+    if (image !== undefined && image !== null && image !== "") {
+      if (typeof image !== "string" || image.trim().length > 2000) {
+        return res.status(400).json({
+          success: false,
+          message: "Please provide a valid profile image URL.",
+        });
+      }
+    }
+
     auth = req.auth;
 
     const normalizedEmail = email.trim().toLowerCase();
@@ -68,6 +81,7 @@ router.post("/register", async (req, res) => {
         name: ownerName.trim(),
         email: normalizedEmail,
         password,
+        image: typeof image === "string" && image.trim() ? image.trim() : undefined,
       },
     });
 

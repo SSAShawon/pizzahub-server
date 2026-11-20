@@ -1,11 +1,28 @@
 
 import { betterAuth } from "better-auth";
 import { mongodbAdapter } from "@better-auth/mongo-adapter";
+import { hashPassword } from "better-auth/crypto";
 import { getMongoClient } from "../config/db.js";
+import {
+  MAX_PASSWORD_LENGTH,
+  MIN_PASSWORD_LENGTH,
+  validatePassword,
+} from "../utils/password.js";
 
 const createAuth = () => {
   const client = getMongoClient();
   const db = client.db(process.env.DB_NAME || "pizzahub");
+
+  const configuredOrigins = (process.env.CLIENT_URL || "")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
+  const trustedOrigins = configuredOrigins.length
+    ? [...new Set(configuredOrigins)]
+    : process.env.NODE_ENV === "production"
+      ? []
+      : ["http://localhost:3000"];
 
   const auth = betterAuth({
     appName: "PizzaHub",
@@ -14,9 +31,21 @@ const createAuth = () => {
 
     secret: process.env.BETTER_AUTH_SECRET,
 
-    trustedOrigins: [
-      process.env.CLIENT_URL || "http://localhost:3000",
-    ],
+    trustedOrigins,
+
+    advanced: {
+      defaultCookieAttributes: {
+        httpOnly: true,
+        sameSite: "lax",
+        secure: process.env.NODE_ENV === "production",
+      },
+    },
+
+    session: {
+      // Protected endpoints independently re-check MongoDB, but keeping the
+      // server-side session read fresh avoids stale role/blocked snapshots.
+      cookieCache: { enabled: false },
+    },
 
     database: mongodbAdapter(db, {
       client,
@@ -25,6 +54,28 @@ const createAuth = () => {
     emailAndPassword: {
       enabled: true,
       autoSignIn: false,
+      minPasswordLength: MIN_PASSWORD_LENGTH,
+      maxPasswordLength: MAX_PASSWORD_LENGTH,
+      password: {
+        hash: async (password) => {
+          validatePassword(password);
+          return hashPassword(password);
+        },
+      },
+    },
+
+    databaseHooks: {
+      user: {
+        create: {
+          before: async (user) => ({
+            data: {
+              ...user,
+              role: "customer",
+              isBlocked: false,
+            },
+          }),
+        },
+      },
     },
 
     user: {
