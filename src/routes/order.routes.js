@@ -1,3 +1,4 @@
+
 import express from "express";
 import { ObjectId } from "mongodb";
 import { getMongoClient } from "../config/db.js";
@@ -18,6 +19,42 @@ const getMenuCollection = () => {
   return getDatabase().collection("menuItems");
 };
 
+// Get today's date in Bangladesh timezone (YYYY-MM-DD)
+const getBangladeshToday = () => {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Dhaka",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+
+  const dateParts = {};
+
+  for (const part of parts) {
+    if (part.type !== "literal") {
+      dateParts[part.type] = part.value;
+    }
+  }
+
+  return `${dateParts.year}-${dateParts.month}-${dateParts.day}`;
+};
+
+// Validate YYYY-MM-DD and ensure it is a real calendar date
+const isValidDeliveryDate = (date) => {
+  if (typeof date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return false;
+  }
+
+  const [year, month, day] = date.split("-").map(Number);
+  const parsedDate = new Date(Date.UTC(year, month - 1, day));
+
+  return (
+    parsedDate.getUTCFullYear() === year &&
+    parsedDate.getUTCMonth() === month - 1 &&
+    parsedDate.getUTCDate() === day
+  );
+};
+
 // POST: Customer creates a new order
 router.post("/", requireCustomer, async (req, res) => {
   try {
@@ -27,6 +64,7 @@ router.post("/", requireCustomer, async (req, res) => {
       phoneNumber,
       deliveryAddress,
       specialInstructions,
+      deliveryDate,
     } = req.body || {};
 
     // Validate menu item ID
@@ -78,17 +116,35 @@ router.post("/", requireCustomer, async (req, res) => {
       });
     }
 
+    // Validate delivery date
+    if (!isValidDeliveryDate(deliveryDate)) {
+      return res.status(400).json({
+        success: false,
+        message: "Please select a valid delivery date.",
+      });
+    }
+
+    if (deliveryDate < getBangladeshToday()) {
+      return res.status(400).json({
+        success: false,
+        message: "Delivery date cannot be in the past.",
+      });
+    }
+
     // Validate special instructions
     const instructions = specialInstructions ?? "";
 
-    if (typeof instructions !== "string" || instructions.trim().length > 500) {
+    if (
+      typeof instructions !== "string" ||
+      instructions.trim().length > 500
+    ) {
       return res.status(400).json({
         success: false,
         message: "Special instructions cannot exceed 500 characters.",
       });
     }
 
-    // Find the selected pizza from the database
+    // Find the selected pizza
     const menuItem = await getMenuCollection().findOne({
       _id: new ObjectId(menuItemId),
       status: "approved",
@@ -102,7 +158,7 @@ router.post("/", requireCustomer, async (req, res) => {
       });
     }
 
-    // Verify restaurant owner using the vendor email
+    // Verify restaurant owner
     const vendor = await getDatabase()
       .collection("user")
       .findOne({
@@ -128,6 +184,22 @@ router.post("/", requireCustomer, async (req, res) => {
       return res.status(403).json({
         success: false,
         message: "You cannot order from your own restaurant.",
+      });
+    }
+
+    // Prevent duplicate active orders for the same pizza and date
+    const existingOrder = await getOrdersCollection().findOne({
+      customerId: req.user.id,
+      menuItemId: menuItem._id,
+      deliveryDate,
+      status: { $in: ["pending", "accepted"] },
+    });
+
+    if (existingOrder) {
+      return res.status(409).json({
+        success: false,
+        message:
+          "You already have an active order for this pizza on the selected delivery date.",
       });
     }
 
@@ -165,7 +237,8 @@ router.post("/", requireCustomer, async (req, res) => {
 
       specialInstructions: instructions.trim(),
 
-      deliveryType: "as_soon_as_possible",
+      deliveryDate,
+      deliveryType: "scheduled",
       status: "pending",
 
       createdAt: now,

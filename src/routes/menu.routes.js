@@ -1,4 +1,3 @@
-
 import express from "express";
 import { ObjectId } from "mongodb";
 import { getMongoClient } from "../config/db.js";
@@ -55,29 +54,115 @@ const getActiveMenuCount = async (vendorId) => {
   });
 };
 
-// PUBLIC: Get all approved and available pizzas
-// Anyone can access this route without logging in.
+// PUBLIC: Get approved and available pizzas
+// Supports search, category, price filtering, sorting and pagination.
+
+// PUBLIC: Get approved and available pizzas
+// Supports restaurant search, category, price filtering, sorting and pagination.
 router.get("/public", async (req, res) => {
   try {
-    const menuItems = await getMenuCollection()
-      .find({
-        status: "approved",
-        isAvailable: true,
-      })
-      .sort({ createdAt: -1 })
-      .toArray();
+    const {
+      search = "",
+      category = "",
+      minPrice,
+      maxPrice,
+      sort = "newest",
+      page = "1",
+      limit = "9",
+    } = req.query;
 
-    const vendorEmails = [
-      ...new Set(menuItems.map((item) => item.vendorEmail).filter(Boolean)),
-    ];
+    // Validate query parameter types
+    if (
+      typeof search !== "string" ||
+      typeof category !== "string" ||
+      typeof sort !== "string"
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid search or category parameters.",
+      });
+    }
 
-    const vendors = await getDatabase()
-      .collection("user")
+    const searchText = search.trim();
+    const categoryText = category.trim();
+
+    if (searchText.length > 100 || categoryText.length > 60) {
+      return res.status(400).json({
+        success: false,
+        message: "Search or category text is too long.",
+      });
+    }
+
+    // Validate pagination
+    const parsedPage = Number(page);
+    const parsedLimit = Number(limit);
+
+    if (
+      !Number.isInteger(parsedPage) ||
+      parsedPage < 1 ||
+      !Number.isInteger(parsedLimit) ||
+      parsedLimit < 1 ||
+      parsedLimit > 50
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid pagination parameters.",
+      });
+    }
+
+    // Validate price filters
+    const parsedMinPrice =
+      minPrice !== undefined && minPrice !== ""
+        ? Number(minPrice)
+        : undefined;
+
+    const parsedMaxPrice =
+      maxPrice !== undefined && maxPrice !== ""
+        ? Number(maxPrice)
+        : undefined;
+
+    if (
+      (parsedMinPrice !== undefined &&
+        (!Number.isFinite(parsedMinPrice) || parsedMinPrice < 0)) ||
+      (parsedMaxPrice !== undefined &&
+        (!Number.isFinite(parsedMaxPrice) || parsedMaxPrice < 0)) ||
+      (parsedMinPrice !== undefined &&
+        parsedMaxPrice !== undefined &&
+        parsedMinPrice > parsedMaxPrice)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid price range.",
+      });
+    }
+
+    // Validate sorting
+    const allowedSortOptions = {
+      newest: { createdAt: -1, _id: -1 },
+      price_asc: { price: 1, _id: 1 },
+      price_desc: { price: -1, _id: 1 },
+      name_asc: { name: 1, _id: 1 },
+      name_desc: { name: -1, _id: 1 },
+    };
+
+    if (!Object.hasOwn(allowedSortOptions, sort)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid sorting option.",
+      });
+    }
+
+    const database = getDatabase();
+    const menuCollection = getMenuCollection();
+    const userCollection = database.collection("user");
+
+    // Find all active, non-blocked vendors
+    const vendors = await userCollection
       .find(
         {
-          email: { $in: vendorEmails },
           role: "vendor",
           isBlocked: { $ne: true },
+          email: { $type: "string", $ne: "" },
         },
         {
           projection: {
@@ -94,28 +179,119 @@ router.get("/public", async (req, res) => {
       vendors.map((vendor) => [vendor.email, vendor]),
     );
 
-    const publicMenuItems = menuItems
-      .filter((item) => vendorMap.has(item.vendorEmail))
-      .map((item) => {
-        const vendor = vendorMap.get(item.vendorEmail);
+    const vendorEmails = [...vendorMap.keys()];
 
-        return {
-          ...item,
-          vendor: {
-            name: vendor.name || "",
-            restaurantName: vendor.restaurantName || "",
-            restaurantAddress: vendor.restaurantAddress || "",
-          },
-        };
-      });
+    // Only show pizzas belonging to valid vendors
+    const baseQuery = {
+      status: "approved",
+      isAvailable: true,
+      vendorEmail: { $in: vendorEmails },
+    };
+
+    // Get all available categories, independent of pagination
+    const categories = await menuCollection.distinct(
+      "category",
+      baseQuery,
+    );
+
+    const publicCategories = categories
+      .filter((value) => typeof value === "string" && value.trim())
+      .map((value) => value.trim())
+      .filter((value, index, array) => array.indexOf(value) === index)
+      .sort((a, b) => a.localeCompare(b));
+
+    // Build the actual menu query
+    const query = { ...baseQuery };
+
+    if (categoryText) {
+      query.category = categoryText;
+    }
+
+    // Search pizza name, description, category and restaurant name
+    if (searchText) {
+      const escapedSearch = searchText.replace(
+        /[.*+?^${}()|[\]\\]/g,
+        "\\$&",
+      );
+
+      const searchRegex = new RegExp(escapedSearch, "i");
+
+      const matchingRestaurantEmails = vendors
+        .filter(
+          (vendor) =>
+            typeof vendor.restaurantName === "string" &&
+            searchRegex.test(vendor.restaurantName),
+        )
+        .map((vendor) => vendor.email);
+
+      query.$or = [
+        { name: searchRegex },
+        { description: searchRegex },
+        { category: searchRegex },
+        { vendorEmail: { $in: matchingRestaurantEmails } },
+      ];
+    }
+
+    // Apply price range
+    if (
+      parsedMinPrice !== undefined ||
+      parsedMaxPrice !== undefined
+    ) {
+      query.price = {};
+
+      if (parsedMinPrice !== undefined) {
+        query.price.$gte = parsedMinPrice;
+      }
+
+      if (parsedMaxPrice !== undefined) {
+        query.price.$lte = parsedMaxPrice;
+      }
+    }
+
+    // Count matching items before pagination
+    const totalItems = await menuCollection.countDocuments(query);
+
+    const totalPages = Math.ceil(totalItems / parsedLimit);
+    const skip = (parsedPage - 1) * parsedLimit;
+
+    // Fetch current page
+    const menuItems = await menuCollection
+      .find(query)
+      .sort(allowedSortOptions[sort])
+      .skip(skip)
+      .limit(parsedLimit)
+      .toArray();
+
+    // Attach vendor information
+    const publicMenuItems = menuItems.map((item) => {
+      const vendor = vendorMap.get(item.vendorEmail);
+
+      return {
+        ...item,
+        vendor: {
+          name: vendor?.name || "",
+          restaurantName: vendor?.restaurantName || "",
+          restaurantAddress: vendor?.restaurantAddress || "",
+        },
+      };
+    });
 
     return res.status(200).json({
       success: true,
-      total: publicMenuItems.length,
+      total: totalItems,
+      categories: publicCategories,
       menuItems: publicMenuItems,
+      pagination: {
+        currentPage: parsedPage,
+        limit: parsedLimit,
+        totalItems,
+        totalPages,
+        hasNextPage: parsedPage < totalPages,
+        hasPreviousPage: parsedPage > 1 && totalPages > 0,
+      },
     });
   } catch (error) {
-    console.error("Get Public Menu Error:", error.message);
+    console.error("Get Public Menu Error:", error);
 
     return res.status(500).json({
       success: false,
@@ -123,6 +299,7 @@ router.get("/public", async (req, res) => {
     });
   }
 });
+
 
 // PUBLIC: Get one approved and available pizza's details
 router.get("/public/:id", async (req, res) => {
@@ -347,14 +524,8 @@ router.patch("/:id", async (req, res) => {
       });
     }
 
-    const {
-      name,
-      category,
-      description,
-      price,
-      image,
-      isAvailable,
-    } = req.body || {};
+    const { name, category, description, price, image, isAvailable } =
+      req.body || {};
 
     const updates = {};
 

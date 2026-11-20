@@ -55,10 +55,25 @@ router.get("/me", async (req, res) => {
 // PATCH: Update current customer's profile
 router.patch("/me", async (req, res) => {
   try {
-    const { phoneNumber, deliveryAddress } = req.body;
+    const { name, phoneNumber, deliveryAddress } = req.body;
 
     const updates = {};
 
+    // Validate and update name
+    if (name !== undefined) {
+      const cleanName = String(name).trim();
+
+      if (cleanName.length < 2 || cleanName.length > 50) {
+        return res.status(400).json({
+          success: false,
+          message: "Name must be between 2 and 50 characters.",
+        });
+      }
+
+      updates.name = cleanName;
+    }
+
+    // Validate and update phone number
     if (phoneNumber !== undefined) {
       const cleanPhone = String(phoneNumber).replace(/[\s-]/g, "");
 
@@ -72,6 +87,7 @@ router.patch("/me", async (req, res) => {
       updates.phoneNumber = cleanPhone;
     }
 
+    // Validate and update delivery address
     if (deliveryAddress !== undefined) {
       const cleanAddress = String(deliveryAddress).trim();
 
