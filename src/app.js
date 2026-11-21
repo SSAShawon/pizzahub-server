@@ -2,6 +2,8 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
+import path from "path";
+import { fileURLToPath } from "url";
 import { toNodeHandler } from "better-auth/node";
 import createAuth from "./auth/auth.js";
 
@@ -10,6 +12,7 @@ import menuRoutes from "./routes/menu.routes.js";
 import userRoutes from "./routes/user.routes.js";
 import orderRoutes from "./routes/order.routes.js";
 import paymentRoutes, { handleStripeWebhook } from "./routes/payment.routes.js";
+import uploadRoutes from "./routes/upload.routes.js";
 
 import adminRoutes from "./routes/admin.routes.js";
 import adminUsersRoutes from "./routes/admin.users.routes.js";
@@ -19,6 +22,10 @@ import adminTransactionsRoutes from "./routes/admin.transactions.routes.js";
 dotenv.config();
 
 const app = express();
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Serve local uploaded images statically
+app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
 
 // CORS Configuration
 const allowedClientOrigins = (
@@ -74,6 +81,9 @@ app.use(express.json());
 
 // Payment Routes
 app.use("/api/payment", paymentRoutes);
+
+// Upload Routes
+app.use("/api/upload", uploadRoutes);
 
 // Vendor Routes
 app.use("/api/vendors", vendorRoutes);
