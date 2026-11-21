@@ -2,6 +2,7 @@
 import { betterAuth } from "better-auth";
 import { mongodbAdapter } from "@better-auth/mongo-adapter";
 import { hashPassword } from "better-auth/crypto";
+import { jwt } from "better-auth/plugins";
 import { getMongoClient } from "../config/db.js";
 import {
   MAX_PASSWORD_LENGTH,
@@ -135,6 +136,11 @@ const createAuth = () => {
             },
           }
         : {},
+
+    // Issues signed JWTs at /api/auth/token and exposes the public key set at
+    // /api/auth/jwks. The Express middleware can verify Bearer tokens as an
+    // alternative to the Better Auth session cookie.
+    plugins: [jwt()],
   });
 
   return auth;

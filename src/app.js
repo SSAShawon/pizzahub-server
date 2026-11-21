@@ -9,6 +9,7 @@ import vendorRoutes from "./routes/vendor.routes.js";
 import menuRoutes from "./routes/menu.routes.js";
 import userRoutes from "./routes/user.routes.js";
 import orderRoutes from "./routes/order.routes.js";
+import paymentRoutes, { handleStripeWebhook } from "./routes/payment.routes.js";
 
 import adminRoutes from "./routes/admin.routes.js";
 import adminUsersRoutes from "./routes/admin.users.routes.js";
@@ -61,8 +62,18 @@ app.all("/api/auth/{*any}", (req, res, next) => {
   toNodeHandler(req.auth)(req, res).catch(next);
 });
 
+// Stripe Webhook Endpoint (requires raw body before express.json)
+app.post(
+  "/api/payment/webhook",
+  express.raw({ type: "application/json" }),
+  handleStripeWebhook
+);
+
 // JSON Middleware
 app.use(express.json());
+
+// Payment Routes
+app.use("/api/payment", paymentRoutes);
 
 // Vendor Routes
 app.use("/api/vendors", vendorRoutes);

@@ -13,6 +13,10 @@ const getMenuCollection = () => {
   return getDatabase().collection("menuItems");
 };
 
+const getOrdersCollection = () => {
+  return getDatabase().collection("orders");
+};
+
 // Check the vendor's current subscription
 const getVendorSubscription = async (vendorEmail) => {
   const user = await getDatabase()
@@ -37,6 +41,26 @@ const getVendorSubscription = async (vendorEmail) => {
     expiryDate !== null &&
     Number.isFinite(expiryDate.getTime()) &&
     expiryDate > now;
+
+  // Lazily downgrade expired premium subscriptions
+  if (user?.subscriptionPlan === "premium" && expiryDate && expiryDate <= now) {
+    try {
+      await getDatabase()
+        .collection("user")
+        .updateOne(
+          { email: vendorEmail },
+          {
+            $set: {
+              subscriptionPlan: "free",
+              subscriptionStatus: "expired",
+              updatedAt: now,
+            },
+          }
+        );
+    } catch (downgradeErr) {
+      console.error("Lazy downgrade error:", downgradeErr.message);
+    }
+  }
 
   return {
     plan: isPremium ? "premium" : "free",
@@ -463,7 +487,12 @@ router.post("/", async (req, res) => {
 
     const now = new Date();
 
-    // New items always start as pending.
+    const subscription = await getVendorSubscription(req.user.email);
+    const activeCount = await getActiveMenuCount(req.user.id);
+    const freeLimitReached = !subscription.isPremium && activeCount >= 3;
+
+    // New items always start as pending. If Free Plan limit is reached,
+    // item is created as inactive (isAvailable: false) until upgrade.
     const newItem = {
       vendorId: req.user.id,
       vendorEmail: req.user.email,
@@ -473,7 +502,7 @@ router.post("/", async (req, res) => {
       price: parsedPrice,
       image: image?.trim() || "",
       status: "pending",
-      isAvailable: true,
+      isAvailable: !freeLimitReached,
       createdAt: now,
       updatedAt: now,
     };
@@ -482,7 +511,10 @@ router.post("/", async (req, res) => {
 
     return res.status(201).json({
       success: true,
-      message: "Menu item submitted for approval.",
+      freeLimitReached,
+      message: freeLimitReached
+        ? "Menu item submitted for approval. Because you reached your Free Plan limit of 3 active items, it will remain inactive until you upgrade to Premium."
+        : "Menu item submitted for approval.",
       menuItem: {
         ...newItem,
         _id: result.insertedId,
@@ -692,8 +724,37 @@ router.delete("/:id", async (req, res) => {
       });
     }
 
+    const menuItemId = new ObjectId(id);
+
+    const existingItem = await getMenuCollection().findOne({
+      _id: menuItemId,
+      vendorId: req.user.id,
+    });
+
+    if (!existingItem) {
+      return res.status(404).json({
+        success: false,
+        message: "Menu item not found or access denied.",
+      });
+    }
+
+    // Do not delete an item that still has pending or accepted orders.
+    const activeOrder = await getOrdersCollection().findOne({
+      menuItemId,
+      status: { $in: ["pending", "accepted"] },
+    });
+
+    if (activeOrder) {
+      return res.status(409).json({
+        success: false,
+        code: "ACTIVE_ORDERS_EXIST",
+        message:
+          "This menu item cannot be deleted because it has pending or accepted orders. Deactivate it instead.",
+      });
+    }
+
     const result = await getMenuCollection().deleteOne({
-      _id: new ObjectId(id),
+      _id: menuItemId,
       vendorId: req.user.id,
     });
 
