@@ -65,6 +65,21 @@ const getVendorSubscription = async (vendorEmail) => {
   };
 };
 
+// Compute Premium status from a user document. Only the boolean result is
+// exposed publicly; plan dates and identifiers stay server-side.
+const isPremiumActive = (user) => {
+  const expiryDate = user?.subscriptionExpiresAt
+    ? new Date(user.subscriptionExpiresAt)
+    : null;
+
+  return (
+    user?.subscriptionPlan === "premium" &&
+    expiryDate !== null &&
+    Number.isFinite(expiryDate.getTime()) &&
+    expiryDate > new Date()
+  );
+};
+
 // Count approved and available menu items
 const getActiveMenuCount = async (vendorId) => {
   return getMenuCollection().countDocuments({
@@ -190,6 +205,8 @@ router.get("/public", async (req, res) => {
             name: 1,
             restaurantName: 1,
             restaurantAddress: 1,
+            subscriptionPlan: 1,
+            subscriptionExpiresAt: 1,
           },
         },
       )
@@ -292,6 +309,7 @@ router.get("/public", async (req, res) => {
           name: vendor?.name || "",
           restaurantName: vendor?.restaurantName || "",
           restaurantAddress: vendor?.restaurantAddress || "",
+          isPremium: isPremiumActive(vendor),
         },
       };
     });
