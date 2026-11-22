@@ -18,10 +18,6 @@ const getVendorCollection = () => {
   return getDatabase().collection("user");
 };
 
-const getOrdersCollection = () => {
-  return getDatabase().collection("orders");
-};
-
 // All routes require an authenticated admin
 router.use(requireAdmin);
 
@@ -362,23 +358,6 @@ router.delete("/menu/:id", async (req, res) => {
       return res.status(404).json({
         success: false,
         message: "Menu item not found.",
-      });
-    }
-
-    // Do not delete an item that has an active order.
-    const activeOrder = await getOrdersCollection().findOne({
-      menuItemId,
-      status: {
-        $in: ["pending", "accepted"],
-      },
-    });
-
-    if (activeOrder) {
-      return res.status(409).json({
-        success: false,
-        code: "ACTIVE_ORDERS_EXIST",
-        message:
-          "This menu item cannot be deleted because it has pending or accepted orders. Deactivate it instead.",
       });
     }
 

@@ -13,10 +13,6 @@ const getMenuCollection = () => {
   return getDatabase().collection("menuItems");
 };
 
-const getOrdersCollection = () => {
-  return getDatabase().collection("orders");
-};
-
 // Check the vendor's current subscription
 const getVendorSubscription = async (vendorEmail) => {
   const user = await getDatabase()
@@ -726,9 +722,16 @@ router.delete("/:id", async (req, res) => {
 
     const menuItemId = new ObjectId(id);
 
+    const vendorMatch = {
+      $or: [
+        { vendorId: req.user.id },
+        ...(req.user.email ? [{ vendorEmail: req.user.email }] : []),
+      ],
+    };
+
     const existingItem = await getMenuCollection().findOne({
       _id: menuItemId,
-      vendorId: req.user.id,
+      ...vendorMatch,
     });
 
     if (!existingItem) {
@@ -738,24 +741,9 @@ router.delete("/:id", async (req, res) => {
       });
     }
 
-    // Do not delete an item that still has pending or accepted orders.
-    const activeOrder = await getOrdersCollection().findOne({
-      menuItemId,
-      status: { $in: ["pending", "accepted"] },
-    });
-
-    if (activeOrder) {
-      return res.status(409).json({
-        success: false,
-        code: "ACTIVE_ORDERS_EXIST",
-        message:
-          "This menu item cannot be deleted because it has pending or accepted orders. Deactivate it instead.",
-      });
-    }
-
     const result = await getMenuCollection().deleteOne({
       _id: menuItemId,
-      vendorId: req.user.id,
+      ...vendorMatch,
     });
 
     if (result.deletedCount === 0) {
